@@ -140,11 +140,11 @@ export function matchPattern(pathname: string, pattern: string): boolean {
     // Escape dots in the literal path segments
     .replace(/\./g, "\\.")
     // /:path* -> optionally match slash + zero or more segments
-    .replace(/\/:(\w+)\*/g, "(?:/.*)?")
+    .replace(/\/:([\w-]+)\*/g, "(?:/.*)?")
     // /:path+ -> match slash + one or more segments
-    .replace(/\/:(\w+)\+/g, "(?:/.+)")
-    // :param -> match one segment
-    .replace(/:(\w+)/g, "([^/]+)");
+    .replace(/\/:([\w-]+)\+/g, "(?:/.+)")
+    // :param -> match one segment (param names may contain hyphens)
+    .replace(/:([\w-]+)/g, "([^/]+)");
 
   const re = safeRegExp("^" + regexStr + "$");
   if (re) return re.test(pathname);
