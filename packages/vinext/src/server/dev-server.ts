@@ -459,8 +459,9 @@ export function createSSRHandler(
         const cacheKey = isrCacheKey("pages", url.split("?")[0]);
         const cached = await isrGet(cacheKey);
 
-        if (cached && !cached.isStale && cached.value.value?.kind === "PAGES") {
-          // Fresh cache hit — serve directly
+        if (cached && !cached.isStale && cached.value.value?.kind === "PAGES" && (cached.value.value as CachedPagesValue).html) {
+          // Fresh cache hit — serve directly (skip if html is empty, which
+          // means background regeneration invalidated the entry)
           const cachedPage = cached.value.value as CachedPagesValue;
           const cachedHtml = cachedPage.html;
           const transformedHtml = await server.transformIndexHtml(url, cachedHtml);
@@ -469,6 +470,7 @@ export function createSSRHandler(
             "Content-Type": "text/html",
             "X-Vinext-Cache": "HIT",
             "Cache-Control": `s-maxage=${revalidateSecs}, stale-while-revalidate`,
+            "Vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch",
           };
           if (earlyFontLinkHeader) hitHeaders["Link"] = earlyFontLinkHeader;
           res.writeHead(200, hitHeaders);
@@ -483,13 +485,19 @@ export function createSSRHandler(
           const transformedHtml = await server.transformIndexHtml(url, cachedHtml);
 
           // Trigger background regeneration: re-run getStaticProps and
-          // update the cache so the next request is a HIT with fresh data.
+          // invalidate the cache so the next request renders fresh HTML+props.
+          // Note: We don't re-render HTML here because the full SSR pipeline
+          // (React render, _app, _document, head, fonts, hydration script)
+          // isn't available in this callback. Instead, we delete the stale
+          // entry so the next request is a cache miss that renders fresh.
           triggerBackgroundRegeneration(cacheKey, async () => {
             const freshResult = await pageModule.getStaticProps({ params });
             if (freshResult && "props" in freshResult) {
               const revalidate = typeof freshResult.revalidate === "number" ? freshResult.revalidate : 0;
               if (revalidate > 0) {
-                await isrSet(cacheKey, buildPagesCacheValue(cachedHtml, freshResult.props), revalidate);
+                // Clear the stale entry — the next request will re-render
+                // with fresh props and populate the cache with matching HTML.
+                await isrSet(cacheKey, buildPagesCacheValue("", freshResult.props), revalidate);
               }
             }
           });
@@ -499,6 +507,7 @@ export function createSSRHandler(
             "Content-Type": "text/html",
             "X-Vinext-Cache": "STALE",
             "Cache-Control": `s-maxage=${revalidateSecs}, stale-while-revalidate`,
+            "Vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch",
           };
           if (earlyFontLinkHeader) staleHeaders["Link"] = earlyFontLinkHeader;
           res.writeHead(200, staleHeaders);
@@ -707,6 +716,7 @@ hydrate();
       if (isrRevalidateSeconds) {
         extraHeaders["Cache-Control"] = `s-maxage=${isrRevalidateSeconds}, stale-while-revalidate`;
         extraHeaders["X-Vinext-Cache"] = "MISS";
+        extraHeaders["Vary"] = "RSC, Next-Router-State-Tree, Next-Router-Prefetch";
       }
 
       // Set HTTP Link header for font preloading.

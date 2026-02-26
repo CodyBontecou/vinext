@@ -40,6 +40,43 @@ describe("next/navigation shim", () => {
     }
   });
 
+  it("redirect() blocks javascript: URLs (C4 fix)", async () => {
+    const { redirect } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(() => redirect("javascript:alert(1)")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => redirect("data:text/html,<script>alert(1)</script>")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => redirect("  javascript:void(0)")).toThrow(/blocked dangerous URL scheme/);
+  });
+
+  it("permanentRedirect() blocks javascript: URLs (C4 fix)", async () => {
+    const { permanentRedirect } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(() => permanentRedirect("javascript:alert(1)")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => permanentRedirect("data:text/html,xss")).toThrow(/blocked dangerous URL scheme/);
+  });
+
+  it("redirect() blocks tab/newline bypass (WHATWG URL spec)", async () => {
+    const { redirect } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    // Browsers strip \t, \n, \r from URLs before scheme detection
+    expect(() => redirect("jav\tascript:alert(1)")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => redirect("java\nscript:alert(1)")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => redirect("java\rscript:alert(1)")).toThrow(/blocked dangerous URL scheme/);
+    expect(() => redirect("d\ta\nta:text/html,xss")).toThrow(/blocked dangerous URL scheme/);
+  });
+
+  it("redirect() allows safe URLs", async () => {
+    const { redirect } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    // These should throw NEXT_REDIRECT (normal redirect flow), not the scheme blocker
+    try { redirect("/dashboard"); } catch (e: any) { expect(e.digest).toContain("NEXT_REDIRECT"); }
+    try { redirect("https://example.com"); } catch (e: any) { expect(e.digest).toContain("NEXT_REDIRECT"); }
+  });
+
   it("redirect() encodes semicolons in URL to prevent digest injection", async () => {
     const { redirect } = await import(
       "../packages/vinext/src/shims/navigation.js"
@@ -2568,6 +2605,97 @@ describe("safeRegExp", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// isSafeNavigationUrl unit tests (XSS scheme blocking — A1 fix)
+
+describe("isSafeNavigationUrl (navigation shim)", () => {
+  it("blocks javascript: URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("JavaScript:alert(document.cookie)")).toBe(false);
+    expect(isSafeNavigationUrl("JAVASCRIPT:void(0)")).toBe(false);
+  });
+
+  it("blocks data: URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isSafeNavigationUrl("Data:text/html;base64,PHNjcmlwdD4=")).toBe(false);
+  });
+
+  it("blocks vbscript: URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("vbscript:MsgBox")).toBe(false);
+  });
+
+  it("blocks blob: URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("blob:http://evil.com/abc")).toBe(false);
+  });
+
+  it("blocks schemes with leading whitespace (trim evasion)", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("  javascript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("\tdata:text/html,hi")).toBe(false);
+    expect(isSafeNavigationUrl("\njavascript:void(0)")).toBe(false);
+  });
+
+  it("allows http:// and https:// URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("https://example.com")).toBe(true);
+    expect(isSafeNavigationUrl("http://example.com/path")).toBe(true);
+  });
+
+  it("allows relative paths", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("/about")).toBe(true);
+    expect(isSafeNavigationUrl("/")).toBe(true);
+    expect(isSafeNavigationUrl("#section")).toBe(true);
+    expect(isSafeNavigationUrl("?query=1")).toBe(true);
+  });
+
+  it("allows ftp: and mailto: (non-dangerous schemes)", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/navigation.js"
+    );
+    expect(isSafeNavigationUrl("ftp://files.example.com")).toBe(true);
+    expect(isSafeNavigationUrl("mailto:user@example.com")).toBe(true);
+  });
+});
+
+describe("isSafeNavigationUrl (router shim)", () => {
+  it("blocks javascript: and data: URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/router.js"
+    );
+    expect(isSafeNavigationUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("data:text/html,<h1>xss</h1>")).toBe(false);
+    expect(isSafeNavigationUrl("  javascript:void(0)")).toBe(false);
+  });
+
+  it("allows safe URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/router.js"
+    );
+    expect(isSafeNavigationUrl("https://example.com")).toBe(true);
+    expect(isSafeNavigationUrl("/about")).toBe(true);
+    expect(isSafeNavigationUrl("http://example.com")).toBe(true);
+  });
+});
+
 describe("escapeHeaderSource", () => {
   it("passes through literal paths unchanged", async () => {
     const { escapeHeaderSource } = await import(
@@ -2921,6 +3049,157 @@ describe("checkHasConditions", () => {
       undefined,
       ctx,
     )).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeDestination unit tests (C7 fix — dangerous scheme blocking)
+
+describe("sanitizeDestination", () => {
+  it("passes through http:// and https:// URLs unchanged", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("https://example.com/path")).toBe("https://example.com/path");
+    expect(sanitizeDestination("http://api.example.com")).toBe("http://api.example.com");
+  });
+
+  it("collapses leading double slashes to single slash", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("//evil.com")).toBe("/evil.com");
+    expect(sanitizeDestination("///triple")).toBe("/triple");
+  });
+
+  it("collapses leading backslashes to single forward slash", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("\\/evil.com")).toBe("/evil.com");
+    expect(sanitizeDestination("\\\\double")).toBe("/double");
+  });
+
+  it("blocks javascript: scheme (C7 fix)", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("javascript:alert(1)")).toBe("/");
+    expect(sanitizeDestination("JavaScript:void(0)")).toBe("/");
+    expect(sanitizeDestination("  javascript:alert(1)")).toBe("/");
+  });
+
+  it("blocks data: scheme (C7 fix)", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("data:text/html,<script>alert(1)</script>")).toBe("/");
+    expect(sanitizeDestination("Data:text/html;base64,abc")).toBe("/");
+  });
+
+  it("blocks vbscript: scheme (C7 fix)", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("vbscript:MsgBox")).toBe("/");
+  });
+
+  it("blocks tab/newline bypass in scheme detection (WHATWG URL spec)", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    // Browsers strip \t, \n, \r before scheme detection
+    expect(sanitizeDestination("jav\tascript:alert(1)")).toBe("/");
+    expect(sanitizeDestination("java\nscript:void(0)")).toBe("/");
+    expect(sanitizeDestination("java\rscript:xss")).toBe("/");
+    expect(sanitizeDestination("d\ta\nta:text/html,xss")).toBe("/");
+    expect(sanitizeDestination("vb\tscript:run")).toBe("/");
+  });
+
+  it("collapses tab+protocol-relative to single slash (open redirect prevention)", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    // Tabs before slashes could bypass slash collapsing if not normalized first
+    expect(sanitizeDestination("\t//evil.com")).toBe("/evil.com");
+    expect(sanitizeDestination("\n//evil.com")).toBe("/evil.com");
+    expect(sanitizeDestination("\r\n//evil.com")).toBe("/evil.com");
+  });
+
+  it("allows normal relative paths", async () => {
+    const { sanitizeDestination } = await import(
+      "../packages/vinext/src/config/config-matchers.js"
+    );
+    expect(sanitizeDestination("/about")).toBe("/about");
+    expect(sanitizeDestination("/api/test?q=1")).toBe("/api/test?q=1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSafeNavigationUrl tab/newline bypass tests (router.ts version)
+
+describe("isSafeNavigationUrl (router.ts)", () => {
+  it("blocks javascript: with embedded tabs/newlines", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/router.js"
+    );
+    expect(isSafeNavigationUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("jav\tascript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("java\nscript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("java\rscript:alert(1)")).toBe(false);
+    expect(isSafeNavigationUrl("  javascript:void(0)")).toBe(false);
+    expect(isSafeNavigationUrl("data:text/html,xss")).toBe(false);
+    expect(isSafeNavigationUrl("blob:http://evil.com/file")).toBe(false);
+  });
+
+  it("allows safe URLs", async () => {
+    const { isSafeNavigationUrl } = await import(
+      "../packages/vinext/src/shims/router.js"
+    );
+    expect(isSafeNavigationUrl("/about")).toBe(true);
+    expect(isSafeNavigationUrl("https://example.com")).toBe(true);
+    expect(isSafeNavigationUrl("#hash")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F3: zoneTag sanitization (GraphQL injection prevention)
+// The sanitization regex is private in tpr.ts, so we test the pattern directly.
+
+describe("zoneTag sanitization (F3)", () => {
+  // This is the same regex used in tpr.ts queryTraffic()
+  const sanitize = (tag: string) => tag.replace(/[^a-f0-9]/gi, "");
+
+  it("preserves valid hex zone IDs", () => {
+    expect(sanitize("abc123def456abc123def456abc12345")).toBe("abc123def456abc123def456abc12345");
+  });
+
+  it("strips GraphQL injection structure (quotes, braces, operators)", () => {
+    // The structural chars (", }, {, #) that make injection work are all stripped.
+    // Some hex-like letters survive but the query is syntactically broken.
+    const result1 = sanitize('abc123" }) { __typename } #');
+    expect(result1.startsWith("abc123")).toBe(true);
+    expect(result1).not.toContain('"');
+    expect(result1).not.toContain('{');
+    expect(result1).not.toContain('}');
+    expect(result1).not.toContain('#');
+
+    const result2 = sanitize("abc\"; mutation { deleteAll }");
+    expect(result2.startsWith("abc")).toBe(true);
+    expect(result2).not.toContain('"');
+    expect(result2).not.toContain(';');
+    expect(result2).not.toContain('{');
+    expect(result2).not.toContain('}');
+  });
+
+  it("strips quotes, braces, and special chars", () => {
+    expect(sanitize('"hello"')).toBe("e");
+    expect(sanitize("{}()[]")).toBe("");
+    expect(sanitize("abc-def_ghi.jkl")).toBe("abcdef");
+  });
+
+  it("handles empty string", () => {
+    expect(sanitize("")).toBe("");
   });
 });
 

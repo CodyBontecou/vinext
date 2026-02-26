@@ -10,7 +10,7 @@
 import React, { forwardRef, useRef, useEffect, useCallback, useContext, createContext, useState, type AnchorHTMLAttributes, type MouseEvent } from "react";
 // Import shared RSC prefetch utilities from navigation shim (relative path
 // so this resolves both via the Vite plugin and in direct vitest imports)
-import { toRscUrl, getPrefetchedUrls, storePrefetchResponse } from "./navigation.js";
+import { toRscUrl, getPrefetchedUrls, storePrefetchResponse, isSafeNavigationUrl } from "./navigation.js";
 
 interface NavigateEvent {
   url: URL;
@@ -353,6 +353,12 @@ const Link = forwardRef<HTMLAnchorElement, LinkProps>(function Link(
       return;
     }
 
+    // Block dangerous schemes (javascript:, data:, etc.)
+    if (!isSafeNavigationUrl(resolvedHref)) {
+      e.preventDefault();
+      return;
+    }
+
     e.preventDefault();
 
     // Call onNavigate callback if provided (Next.js 16 View Transitions support)
@@ -460,9 +466,12 @@ const Link = forwardRef<HTMLAnchorElement, LinkProps>(function Link(
 
   const linkStatusValue = React.useMemo(() => ({ pending }), [pending]);
 
+  // Sanitize href to prevent javascript: XSS via middle-click / right-click-open
+  const safeHref = isSafeNavigationUrl(fullHref) ? fullHref : "#";
+
   return (
     <LinkStatusContext.Provider value={linkStatusValue}>
-      <a ref={setRefs} href={fullHref} onClick={handleClick} {...anchorProps}>
+      <a ref={setRefs} href={safeHref} onClick={handleClick} {...anchorProps}>
         {children}
       </a>
     </LinkStatusContext.Provider>

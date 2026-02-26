@@ -90,7 +90,18 @@ export class KVCacheHandler implements CacheHandler {
 
   constructor(kvNamespace: KVNamespace, options?: { appPrefix?: string }) {
     this.kv = kvNamespace;
-    this.prefix = options?.appPrefix ? `${options.appPrefix}:` : "";
+    if (options?.appPrefix) {
+      // Only allow safe characters to prevent key collisions with internal prefixes
+      if (!/^[a-zA-Z0-9._-]+$/.test(options.appPrefix)) {
+        throw new Error(
+          `[vinext] Invalid appPrefix "${options.appPrefix}": ` +
+          `only alphanumeric characters, hyphens, underscores, and dots are allowed.`,
+        );
+      }
+      this.prefix = `${options.appPrefix}:`;
+    } else {
+      this.prefix = "";
+    }
   }
 
   async get(
@@ -113,7 +124,7 @@ export class KVCacheHandler implements CacheHandler {
     // Validate deserialized shape before using
     const entry = validateCacheEntry(parsed);
     if (!entry) {
-      console.error("[vinext] Invalid cache entry shape for key:", key);
+      console.error("[vinext] Invalid cache entry shape for key:", key.slice(0, 80));
       await this.kv.delete(kvKey);
       return null;
     }

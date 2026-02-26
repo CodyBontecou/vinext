@@ -488,11 +488,17 @@ describe("ISR (Pages Router)", () => {
     // Wait a moment for background regeneration to complete
     await new Promise((r) => setTimeout(r, 200));
 
-    // Next request should be a HIT — background regen re-ran getStaticProps
-    // and cached the fresh result.
+    // Next request should be a MISS — background regen invalidated the stale
+    // entry (D7 fix: stores empty HTML to prevent HTML/props desync since the
+    // background callback can't re-render). This request re-renders fresh.
     const res3 = await fetch(`${baseUrl}/isr-test`);
     expect(res3.status).toBe(200);
-    expect(res3.headers.get("x-vinext-cache")).toBe("HIT");
+    expect(res3.headers.get("x-vinext-cache")).toBe("MISS");
+
+    // Now the cache is populated with matching HTML+props — next request is a HIT
+    const res4 = await fetch(`${baseUrl}/isr-test`);
+    expect(res4.status).toBe(200);
+    expect(res4.headers.get("x-vinext-cache")).toBe("HIT");
   });
 
   it("sets Cache-Control header for ISR pages", async () => {
@@ -500,6 +506,14 @@ describe("ISR (Pages Router)", () => {
     const cacheControl = res.headers.get("cache-control");
     expect(cacheControl).toContain("s-maxage=1");
     expect(cacheControl).toContain("stale-while-revalidate");
+  });
+
+  it("sets Vary header for ISR pages (D3 fix)", async () => {
+    const res = await fetch(`${baseUrl}/isr-test`);
+    const vary = res.headers.get("vary");
+    expect(vary).toContain("RSC");
+    expect(vary).toContain("Next-Router-State-Tree");
+    expect(vary).toContain("Next-Router-Prefetch");
   });
 
   it("does not set ISR headers for non-ISR pages", async () => {

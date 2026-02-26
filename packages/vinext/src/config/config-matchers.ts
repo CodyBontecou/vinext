@@ -58,7 +58,7 @@ export function isSafeRegex(pattern: string): boolean {
 
     if (ch === "(") {
       depth++;
-      // Initialize: no quantifier seen yet at this new depth
+      // Initialize: no quantifier or alternation seen yet at this new depth
       if (quantifierAtDepth.length <= depth) {
         quantifierAtDepth.push(false);
       } else {
@@ -80,6 +80,7 @@ export function isSafeRegex(pattern: string): boolean {
       if (next === "+" || next === "*" || next === "{") {
         if (hadQuantifier) {
           // Nested quantifier detected: quantifier on a group that contains a quantifier
+          // Also catches alternation with quantified branches: (a+|b+)+
           return false;
         }
         // Mark the enclosing depth as having a quantifier
@@ -544,17 +545,30 @@ export function matchRewrite(
  * This function collapses any leading double (or more) slashes to a single
  * slash for non-external (relative) destinations.
  */
+/**
+ * URL schemes that can execute arbitrary code. Block these in redirect/rewrite
+ * destinations to prevent XSS when catch-all params inject attacker content.
+ */
+const DANGEROUS_DEST_SCHEMES = /^\s*(javascript|data|vbscript):/i;
+
 export function sanitizeDestination(dest: string): string {
   // External URLs (http://, https://) are intentional — don't touch them
   if (dest.startsWith("http://") || dest.startsWith("https://")) {
     return dest;
   }
+  // Strip characters that browsers silently remove during URL scheme parsing
+  // (WHATWG URL spec: \t, \n, \r are stripped before scheme detection).
+  const normalized = dest.replace(/[\t\n\r]/g, "");
+  // Block dangerous schemes that could execute code
+  if (DANGEROUS_DEST_SCHEMES.test(normalized)) {
+    return "/";
+  }
   // Normalize leading backslashes to forward slashes. Browsers interpret
-  // backslash as forward slash in URL contexts, so "\/evil.com" becomes
+  // backslash as forward slash in URL contexts, so "\///evil.com" becomes
   // "//evil.com" (protocol-relative redirect). Replace any mix of leading
   // slashes and backslashes with a single forward slash.
-  dest = dest.replace(/^[\\/]+/, "/");
-  return dest;
+  // Use `normalized` (tab/newline-stripped) so "\t//evil.com" is also caught.
+  return normalized.replace(/^[\\/]+/, "/");
 }
 
 /**

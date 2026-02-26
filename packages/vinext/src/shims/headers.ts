@@ -7,6 +7,7 @@
  * In Next.js 15+, cookies() and headers() return Promises (async).
  * We support both the sync (legacy) and async patterns.
  */
+import { timingSafeEqual } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -297,9 +298,12 @@ interface DraftModeResult {
 export async function draftMode(): Promise<DraftModeResult> {
   const state = _getState();
   const secret = getDraftSecret();
-  const isEnabled = state.headersContext
-    ? state.headersContext.cookies.get(DRAFT_MODE_COOKIE) === secret
-    : false;
+  const cookieValue = state.headersContext
+    ? state.headersContext.cookies.get(DRAFT_MODE_COOKIE) ?? ""
+    : "";
+  // Use timing-safe comparison to prevent timing side-channel attacks
+  const isEnabled = cookieValue.length === secret.length &&
+    timingSafeEqual(Buffer.from(cookieValue), Buffer.from(secret));
 
   return {
     isEnabled,

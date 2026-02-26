@@ -152,6 +152,9 @@ interface MemoryEntry {
   revalidateAt: number | null;
 }
 
+/** Maximum entries in the in-memory cache before eviction kicks in. */
+const MAX_MEMORY_ENTRIES = 10_000;
+
 export class MemoryCacheHandler implements CacheHandler {
   private store = new Map<string, MemoryEntry>();
   private tagRevalidatedAt = new Map<string, number>();
@@ -220,6 +223,17 @@ export class MemoryCacheHandler implements CacheHandler {
       lastModified: Date.now(),
       revalidateAt,
     });
+
+    // Evict oldest entries (by insertion order) when over the size cap
+    if (this.store.size > MAX_MEMORY_ENTRIES) {
+      const excess = this.store.size - MAX_MEMORY_ENTRIES;
+      let removed = 0;
+      for (const k of this.store.keys()) {
+        if (removed >= excess) break;
+        this.store.delete(k);
+        removed++;
+      }
+    }
   }
 
   async revalidateTag(

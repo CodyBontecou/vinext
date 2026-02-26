@@ -67,10 +67,15 @@ export async function isrSet(
 
 const pendingRegenerations = new Map<string, Promise<void>>();
 
+/** Maximum concurrent background regenerations to prevent memory exhaustion. */
+const MAX_PENDING_REGENERATIONS = 1000;
+
 /**
  * Trigger a background regeneration for a cache key.
  *
  * If a regeneration for this key is already in progress, this is a no-op.
+ * If the pending map is at capacity, the regeneration is skipped (the stale
+ * entry is still served) to prevent unbounded memory growth.
  * The renderFn should produce the new cache value and call isrSet internally.
  */
 export function triggerBackgroundRegeneration(
@@ -78,6 +83,7 @@ export function triggerBackgroundRegeneration(
   renderFn: () => Promise<void>,
 ): void {
   if (pendingRegenerations.has(key)) return;
+  if (pendingRegenerations.size >= MAX_PENDING_REGENERATIONS) return;
 
   const promise = renderFn()
     .catch((err) => {

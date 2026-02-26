@@ -136,6 +136,21 @@ export function isExternalUrl(url: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//");
 }
 
+/**
+ * URL schemes that can execute arbitrary code when navigated to.
+ * Block these in programmatic navigation (push/replace/assign) to prevent XSS.
+ */
+const DANGEROUS_SCHEMES = /^(javascript|data|vbscript|blob):/i;
+
+/** Returns true if the URL is safe for programmatic navigation. */
+export function isSafeNavigationUrl(url: string): boolean {
+  // Strip characters that browsers silently remove during URL scheme parsing
+  // (WHATWG URL spec: ASCII tab, newline, carriage return are stripped before
+  // scheme detection, so "jav\tascript:" is treated as "javascript:").
+  const normalized = url.trim().replace(/[\t\n\r]/g, "");
+  return !DANGEROUS_SCHEMES.test(normalized);
+}
+
 /** Check if a href is only a hash change relative to the current URL */
 export function isHashOnlyChange(href: string): boolean {
   if (href.startsWith("#")) return true;
@@ -431,6 +446,10 @@ export function useRouter(): NextRouter {
 
       // External URLs — delegate to browser
       if (isExternalUrl(resolved)) {
+        if (!isSafeNavigationUrl(resolved)) {
+          console.error("[vinext] Blocked navigation to dangerous URL:", resolved.slice(0, 60));
+          return false;
+        }
         window.location.assign(resolved);
         return true;
       }
@@ -474,6 +493,10 @@ export function useRouter(): NextRouter {
 
       // External URLs — delegate to browser
       if (isExternalUrl(resolved)) {
+        if (!isSafeNavigationUrl(resolved)) {
+          console.error("[vinext] Blocked navigation to dangerous URL:", resolved.slice(0, 60));
+          return false;
+        }
         window.location.replace(resolved);
         return true;
       }
@@ -607,6 +630,10 @@ const Router = {
 
     // External URLs
     if (isExternalUrl(resolved)) {
+      if (!isSafeNavigationUrl(resolved)) {
+        console.error("[vinext] Blocked navigation to dangerous URL:", resolved.slice(0, 60));
+        return false;
+      }
       window.location.assign(resolved);
       return true;
     }
@@ -643,6 +670,10 @@ const Router = {
 
     // External URLs
     if (isExternalUrl(resolved)) {
+      if (!isSafeNavigationUrl(resolved)) {
+        console.error("[vinext] Blocked navigation to dangerous URL:", resolved.slice(0, 60));
+        return false;
+      }
       window.location.replace(resolved);
       return true;
     }

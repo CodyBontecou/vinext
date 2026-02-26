@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { execFileSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { runCheck, formatReport } from "./check.js";
 import {
   ensureESModule,
@@ -220,9 +220,12 @@ function installDeps(
 export async function init(options: InitOptions): Promise<InitResult> {
   const root = path.resolve(options.root);
   const port = options.port ?? 3001;
+  // shell: true is safe here — the command is entirely code-controlled (hardcoded
+  // package manager name + hardcoded package names). No user input reaches this path.
+  // shell: true is required on Windows where npm/pnpm/yarn are .cmd batch scripts
+  // that execFileSync cannot resolve without shell expansion.
   const exec = options._exec ?? ((cmd: string, opts: { cwd: string; stdio: string }) => {
-    const [program, ...args] = cmd.split(" ");
-    execFileSync(program, args, { ...opts, shell: true } as Parameters<typeof execFileSync>[2]);
+    execSync(cmd, opts as import("node:child_process").ExecSyncOptions);
   });
 
   // ── Pre-flight checks ──────────────────────────────────────────────────

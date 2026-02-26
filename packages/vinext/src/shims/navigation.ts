@@ -314,6 +314,24 @@ function isExternalUrl(href: string): boolean {
 }
 
 /**
+ * URL schemes that can execute arbitrary code when navigated to.
+ * Block these in programmatic navigation (push/replace/assign) to prevent XSS.
+ */
+const DANGEROUS_SCHEMES = /^(javascript|data|vbscript|blob):/i;
+
+/**
+ * Returns true if the URL is safe for programmatic navigation.
+ * Blocks javascript:, data:, vbscript:, and blob: schemes.
+ */
+export function isSafeNavigationUrl(url: string): boolean {
+  // Strip characters that browsers silently remove during URL scheme parsing
+  // (WHATWG URL spec: ASCII tab, newline, carriage return are stripped before
+  // scheme detection, so "jav\tascript:" is treated as "javascript:").
+  const normalized = url.trim().replace(/[\t\n\r]/g, "");
+  return !DANGEROUS_SCHEMES.test(normalized);
+}
+
+/**
  * Check if a href is only a hash change relative to the current URL.
  */
 function isHashOnlyChange(href: string): boolean {
@@ -423,6 +441,13 @@ async function navigateImpl(
 ): Promise<void> {
   // External URLs: use full page navigation
   if (isExternalUrl(href)) {
+    // Block dangerous schemes (javascript:, data:, etc.) to prevent XSS
+    if (!isSafeNavigationUrl(href)) {
+      if (typeof console !== "undefined") {
+        console.error("[vinext] Blocked navigation to dangerous URL:", href.slice(0, 60));
+      }
+      return;
+    }
     if (mode === "replace") {
       window.location.replace(href);
     } else {
@@ -686,6 +711,9 @@ export enum RedirectType {
  * Throw a redirect. Caught by the framework to send a redirect response.
  */
 export function redirect(url: string, type?: "replace" | "push" | RedirectType): never {
+  if (!isSafeNavigationUrl(url)) {
+    throw new Error(`[vinext] redirect() blocked dangerous URL scheme: ${url.slice(0, 60)}`);
+  }
   const error = new Error(`NEXT_REDIRECT:${url}`);
   (error as any).digest = `NEXT_REDIRECT;${type ?? "replace"};${encodeURIComponent(url)}`;
   throw error;
@@ -695,6 +723,9 @@ export function redirect(url: string, type?: "replace" | "push" | RedirectType):
  * Trigger a permanent redirect (308).
  */
 export function permanentRedirect(url: string): never {
+  if (!isSafeNavigationUrl(url)) {
+    throw new Error(`[vinext] permanentRedirect() blocked dangerous URL scheme: ${url.slice(0, 60)}`);
+  }
   const error = new Error(`NEXT_REDIRECT:${url}`);
   (error as any).digest = `NEXT_REDIRECT;replace;${encodeURIComponent(url)};308`;
   throw error;

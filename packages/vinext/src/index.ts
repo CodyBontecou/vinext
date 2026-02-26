@@ -1240,7 +1240,7 @@ export async function renderPage(request, url, manifest) {
       const cacheKey = "pages:" + (pathname === "/" ? "/" : pathname.replace(/\\/$/, ""));
       const cached = await isrGet(cacheKey);
 
-      if (cached && !cached.isStale && cached.value.value && cached.value.value.kind === "PAGES") {
+      if (cached && !cached.isStale && cached.value.value && cached.value.value.kind === "PAGES" && cached.value.value.html) {
         var _hitHeaders = {
           "Content-Type": "text/html", "X-Vinext-Cache": "HIT",
           "Cache-Control": "s-maxage=" + (cached.value.value.revalidate || 60) + ", stale-while-revalidate",
@@ -1253,7 +1253,7 @@ export async function renderPage(request, url, manifest) {
         triggerBackgroundRegeneration(cacheKey, async function() {
           const freshResult = await pageModule.getStaticProps({ params });
           if (freshResult && freshResult.props && typeof freshResult.revalidate === "number" && freshResult.revalidate > 0) {
-            await isrSet(cacheKey, { kind: "PAGES", html: cached.value.value.html, pageData: freshResult.props, headers: undefined, status: undefined }, freshResult.revalidate);
+            await isrSet(cacheKey, { kind: "PAGES", html: "", pageData: freshResult.props, headers: undefined, status: undefined }, freshResult.revalidate);
           }
         });
         var _staleHeaders = {
@@ -1702,9 +1702,11 @@ hydrate();
         // Draft mode secret — generated once at build time so the
         // __prerender_bypass cookie is consistent across all server
         // instances (e.g. multiple Cloudflare Workers isolates).
-        defines["process.env.__VINEXT_DRAFT_SECRET"] = JSON.stringify(
-          crypto.randomUUID(),
-        );
+        // Stored separately from `defines` so it's only injected into
+        // server environments (RSC/SSR), not the client bundle.
+        const draftSecretDefine = {
+          "process.env.__VINEXT_DRAFT_SECRET": JSON.stringify(crypto.randomUUID()),
+        };
 
         // Build the shim alias map — used by both resolve.alias and resolveId
         // (resolveId handles .js extension variants for libraries like nuqs)
@@ -1963,6 +1965,7 @@ hydrate();
                   ],
                 },
               }),
+              define: draftSecretDefine,
               optimizeDeps: {
                 exclude: ["vinext"],
                 entries: appEntries,
@@ -1975,6 +1978,7 @@ hydrate();
               },
             },
             ssr: {
+              define: draftSecretDefine,
               optimizeDeps: {
                 exclude: ["vinext"],
                 entries: appEntries,

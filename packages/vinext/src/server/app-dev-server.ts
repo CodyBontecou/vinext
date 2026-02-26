@@ -1468,7 +1468,14 @@ async function _handleRequest(request) {
       let returnValue;
       let actionRedirect = null;
       try {
-        const data = await action.apply(null, args);
+        const __ACTION_TIMEOUT_MS = 60_000;
+        let __actionTimeoutId;
+        const data = await Promise.race([
+          action.apply(null, args),
+          new Promise((_, reject) => {
+            __actionTimeoutId = setTimeout(() => reject(new Error("Server action timed out after 60s")), __ACTION_TIMEOUT_MS);
+          }),
+        ]).finally(() => clearTimeout(__actionTimeoutId));
         returnValue = { ok: true, data };
       } catch (e) {
         // Detect redirect() / permanentRedirect() called inside the action.

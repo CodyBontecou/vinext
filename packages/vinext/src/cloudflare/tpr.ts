@@ -24,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
+import { isrCacheKey } from "../server/isr-cache.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -392,9 +393,11 @@ async function queryTraffic(
   const now = new Date();
   const start = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
 
+  // Sanitize zoneTag to prevent GraphQL injection — zone IDs are 32-char hex strings
+  const safeZoneTag = zoneTag.replace(/[^a-f0-9]/gi, "");
   const query = `{
     viewer {
-      zones(filter: { zoneTag: "${zoneTag}" }) {
+      zones(filter: { zoneTag: "${safeZoneTag}" }) {
         httpRequestsAdaptiveGroups(
           limit: 10000
           orderBy: [sum_requests_DESC]
@@ -614,20 +617,29 @@ function startLocalServer(root: string, port: number): ChildProcess {
   const prodServerPath = path.resolve(thisDir, "..", "server", "prod-server.js");
   const outDir = path.join(root, "dist");
 
-  // Escape backslashes for Windows paths inside the JS string
-  const escapedProdServer = prodServerPath.replace(/\\/g, "\\\\");
-  const escapedOutDir = outDir.replace(/\\/g, "\\\\");
+  // Use JSON.stringify for safe string interpolation (handles quotes, backslashes, newlines)
+  const safeProdServer = JSON.stringify(`file://${prodServerPath}`);
+  const safeOutDir = JSON.stringify(outDir);
 
   const script = [
-    `import("file://${escapedProdServer}")`,
-    `.then(m => m.startProdServer({ port: ${port}, host: "127.0.0.1", outDir: "${escapedOutDir}" }))`,
+    `import(${safeProdServer})`,
+    `.then(m => m.startProdServer({ port: ${port}, host: "127.0.0.1", outDir: ${safeOutDir} }))`,
     `.catch(e => { console.error("[vinext-tpr] Server failed to start:", e); process.exit(1); });`,
   ].join("");
 
   const proc = spawn(process.execPath, ["--input-type=module", "-e", script], {
     cwd: root,
     stdio: "pipe",
-    env: { ...process.env, NODE_ENV: "production" },
+    env: {
+      // Pass through env vars but strip Cloudflare API credentials that the
+      // subprocess doesn't need (it only serves HTTP, it doesn't call CF APIs).
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([k]) =>
+          !(/^(CLOUDFLARE_API_TOKEN|CLOUDFLARE_API_KEY|CF_API_TOKEN|CF_API_KEY|CLOUDFLARE_ACCOUNT_ID)$/i.test(k)),
+        ),
+      ),
+      NODE_ENV: "production",
+    },
   });
 
   // Forward server errors to the parent's stderr for debugging
@@ -718,7 +730,7 @@ async function uploadToKV(
     };
 
     pairs.push({
-      key: `cache:${routePath}`,
+      key: `cache:${isrCacheKey("app", routePath)}`,
       value: JSON.stringify(entry),
       expiration_ttl: kvTtl,
     });

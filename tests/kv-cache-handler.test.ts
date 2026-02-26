@@ -314,6 +314,83 @@ describe("KVCacheHandler", () => {
   });
 
   // -------------------------------------------------------------------------
+  // H8: PII redaction — cache key truncated in error logs
+  // -------------------------------------------------------------------------
+
+  describe("PII redaction (H8)", () => {
+    it("truncates long cache keys to 80 chars in error logs", async () => {
+      const longKey = "/users/12345/profile/settings/notifications/preferences/" + "a".repeat(100);
+      // Store an entry with invalid shape to trigger the error log
+      store.set(
+        "cache:" + longKey,
+        JSON.stringify({
+          value: { kind: "UNKNOWN_BAD_KIND" },
+          tags: [],
+          lastModified: 123,
+          revalidateAt: null,
+        }),
+      );
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await handler.get(longKey);
+      expect(consoleSpy).toHaveBeenCalled();
+      // The logged key should be truncated, not the full length
+      const loggedMessage = consoleSpy.mock.calls[0].join(" ");
+      expect(loggedMessage).not.toContain(longKey);
+      expect(loggedMessage).toContain(longKey.slice(0, 80));
+      consoleSpy.mockRestore();
+    });
+
+    it("does not truncate short cache keys in error logs", async () => {
+      const shortKey = "/about";
+      store.set(
+        "cache:" + shortKey,
+        JSON.stringify({
+          value: { kind: "UNKNOWN_BAD_KIND" },
+          tags: [],
+          lastModified: 123,
+          revalidateAt: null,
+        }),
+      );
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await handler.get(shortKey);
+      expect(consoleSpy).toHaveBeenCalled();
+      const loggedMessage = consoleSpy.mock.calls[0].join(" ");
+      expect(loggedMessage).toContain(shortKey);
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // H2: appPrefix validation
+  // -------------------------------------------------------------------------
+
+  describe("appPrefix validation (H2)", () => {
+    it("rejects appPrefix with special characters", () => {
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "my:app" })).toThrow(/Invalid appPrefix/);
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "my/app" })).toThrow(/Invalid appPrefix/);
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "../escape" })).toThrow(/Invalid appPrefix/);
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "a b" })).toThrow(/Invalid appPrefix/);
+    });
+
+    it("accepts valid appPrefix values", () => {
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "myapp" })).not.toThrow();
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "my-app.v2" })).not.toThrow();
+      expect(() => new KVCacheHandler(kv as any, { appPrefix: "APP_123" })).not.toThrow();
+    });
+
+    it("prepends appPrefix to KV keys", async () => {
+      const prefixedHandler = new KVCacheHandler(kv as any, { appPrefix: "myapp" });
+      store.set(
+        "myapp:cache:test-page",
+        validEntry({ kind: "PAGES", html: "<html></html>", pageData: {}, headers: undefined, status: 200 }),
+      );
+      const result = await prefixedHandler.get("test-page");
+      expect(result).not.toBeNull();
+      expect(result!.value!.kind).toBe("PAGES");
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // set() + get() round-trip
   // -------------------------------------------------------------------------
 
