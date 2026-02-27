@@ -47,6 +47,10 @@ const _fallbackState = (_g[_FALLBACK_KEY] ??= {
 
 function _getState(): VinextHeadersShimState {
   const state = _als.getStore();
+  const usingFallback = !state;
+  if (usingFallback) {
+    console.log('[vinext:headers] WARNING: ALS store not found, using fallback state. headersContext exists:', !!_fallbackState.headersContext);
+  }
   return state ?? _fallbackState;
 }
 
@@ -129,6 +133,9 @@ export function runWithHeadersContext<T>(
   ctx: HeadersContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
+  const cookieHeader = ctx.headers.get('cookie');
+  console.log('[vinext:headers] runWithHeadersContext called, cookie header present:', !!cookieHeader, 'cookies count:', ctx.cookies.size);
+  
   const state: VinextHeadersShimState = {
     headersContext: ctx,
     dynamicUsageDetected: false,
@@ -206,6 +213,11 @@ export function headersContextFromRequest(request: Request): HeadersContext {
  */
 export async function headers(): Promise<Headers> {
   const state = _getState();
+  console.log('[vinext:headers] headers() called, headersContext exists:', !!state.headersContext);
+  if (state.headersContext) {
+    const cookieHeader = state.headersContext.headers.get('cookie');
+    console.log('[vinext:headers] Cookie header present:', !!cookieHeader, 'length:', cookieHeader?.length ?? 0);
+  }
   if (!state.headersContext) {
     throw new Error(
       "headers() can only be called from a Server Component, Route Handler, " +

@@ -2707,6 +2707,7 @@ setServerCallback(async (id, args) => {
     method: "POST",
     headers: { "x-rsc-action": id },
     body,
+    credentials: "include",
   });
 
   // Check for redirect signal from server action that called redirect()
@@ -2787,7 +2788,9 @@ async function main() {
     }
   } else {
     // Fallback: fetch fresh RSC (shouldn't happen on initial page load)
-    const rscResponse = await fetch(toRscUrl(window.location.pathname + window.location.search));
+    const rscResponse = await fetch(toRscUrl(window.location.pathname + window.location.search), {
+      credentials: "include",
+    });
 
     // Hydrate useParams() with route params from the server before React hydration
     const paramsHeader = rscResponse.headers.get("X-Vinext-Params");
@@ -2839,6 +2842,7 @@ async function main() {
       if (!navResponse) {
         navResponse = await fetch(rscUrl, {
           headers: { Accept: "text/x-component" },
+          credentials: "include",
         });
       }
 
@@ -2883,7 +2887,9 @@ async function main() {
     import.meta.hot.on("rsc:update", async () => {
       try {
         const rscPayload = await createFromFetch(
-          fetch(toRscUrl(window.location.pathname + window.location.search))
+          fetch(toRscUrl(window.location.pathname + window.location.search), {
+            credentials: "include",
+          })
         );
         reactRoot.render(rscPayload);
       } catch (err) {
