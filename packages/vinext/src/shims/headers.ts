@@ -47,10 +47,6 @@ const _fallbackState = (_g[_FALLBACK_KEY] ??= {
 
 function _getState(): VinextHeadersShimState {
   const state = _als.getStore();
-  const usingFallback = !state;
-  if (usingFallback) {
-    console.log('[vinext:headers] WARNING: ALS store not found, using fallback state. headersContext exists:', !!_fallbackState.headersContext);
-  }
   return state ?? _fallbackState;
 }
 
@@ -213,14 +209,11 @@ export function headersContextFromRequest(request: Request): HeadersContext {
  */
 export async function headers(): Promise<Headers> {
   const state = _getState();
-  console.log('[vinext:headers] headers() called, headersContext exists:', !!state.headersContext);
-  if (state.headersContext) {
-    const cookieHeader = state.headersContext.headers.get('cookie');
-    console.log('[vinext:headers] Cookie header present:', !!cookieHeader, 'length:', cookieHeader?.length ?? 0);
-  }
   if (!state.headersContext) {
+    // Error message prefix for consistency with cookies() and better-auth compatibility
     throw new Error(
-      "headers() can only be called from a Server Component, Route Handler, " +
+      "`headers` was called outside a request scope. " +
+        "headers() can only be called from a Server Component, Route Handler, " +
         "or Server Action. Make sure you're not calling it from a Client Component.",
     );
   }
@@ -235,9 +228,12 @@ export async function headers(): Promise<Headers> {
 export async function cookies(): Promise<RequestCookies> {
   const state = _getState();
   if (!state.headersContext) {
+    // Error message must start with this prefix for better-auth compatibility
+    // (better-auth's nextCookies plugin catches and ignores this specific error)
     throw new Error(
-      "cookies() can only be called from a Server Component, Route Handler, " +
-        "or Server Action.",
+      "`cookies` was called outside a request scope. " +
+        "cookies() can only be called from a Server Component, Route Handler, " +
+        "or Server Action. Make sure you're not calling it from a Client Component.",
     );
   }
   markDynamicUsage();
