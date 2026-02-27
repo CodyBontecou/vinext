@@ -520,6 +520,7 @@ export function useRouter() {
       fetch(rscUrl, {
         headers: { Accept: "text/x-component" },
         priority: "low" as RequestInit["priority"],
+        credentials: "include",
       }).then((response) => {
         if (response.ok) {
           storePrefetchResponse(rscUrl, response);

@@ -303,7 +303,7 @@ async function navigateClient(url: string): Promise<void> {
 
   try {
     // Fetch the target page's SSR HTML
-    const res = await fetch(url, { headers: { Accept: "text/html" } });
+    const res = await fetch(url, { headers: { Accept: "text/html" }, credentials: "include" });
     if (!res.ok) {
       window.location.href = url;
       return;
